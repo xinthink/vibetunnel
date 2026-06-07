@@ -1,0 +1,1284 @@
+openapi: "3.1.0"
+info:
+  title: VibeTunnel API
+  description: |
+    REST API for the VibeTunnel terminal multiplexer and session manager.
+    All endpoints are mounted under `/api` and require authentication unless
+    otherwise noted. The WebSocket v3 protocol at `/ws` is documented separately.
+  version: "1.0.0-beta.16"
+  contact:
+    name: VibeTunnel
+    url: https://vibetunnel.sh
+
+servers:
+  - url: http://localhost:4020/api
+    description: Local development server
+
+security:
+  - bearerAuth: []
+  - queryToken: []
+
+tags:
+  - name: Health
+    description: Server health and status
+  - name: Auth
+    description: Authentication endpoints
+  - name: Sessions
+    description: Terminal session management
+  - name: Filesystem
+    description: File browsing and content access
+  - name: Git
+    description: Git repository information
+  - name: Config
+    description: Application configuration
+
+# ──────────── SECURITY SCHEMES ────────────
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from password/SSH/Tailscale authentication
+    queryToken:
+      type: apiKey
+      in: query
+      name: token
+      description: JWT token in query parameter (for WebSocket clients)
+    localBypass:
+      type: apiKey
+      in: header
+      name: x-vibetunnel-local
+      description: Local bypass token for localhost/LAN access
+
+  # ──────────── SHARED SCHEMAS ────────────
+
+  schemas:
+    # ── Error ──
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+
+    # ── Health ──
+    HealthResponse:
+      type: object
+      required: [status, timestamp, version, connections]
+      properties:
+        status:
+          type: string
+          enum: [healthy]
+        timestamp:
+          type: string
+          format: date-time
+        mode:
+          type: string
+          enum: [hq, remote]
+        version:
+          type: string
+        buildDate:
+          type: string
+        uptime:
+          type: number
+        pid:
+          type: integer
+        connections:
+          $ref: "#/components/schemas/ConnectionInfo"
+        tailscaleUrl:
+          type: string
+          nullable: true
+
+    ConnectionInfo:
+      type: object
+      properties:
+        http:
+          type: object
+          properties:
+            port:
+              type: integer
+              nullable: true
+            url:
+              type: string
+        port:
+          type: integer
+          nullable: true
+        tailscale:
+          $ref: "#/components/schemas/TailscaleConnectionInfo"
+        sslAvailable:
+          type: boolean
+        isPublic:
+          type: boolean
+
+    TailscaleConnectionInfo:
+      type: object
+      required: [available, isRunning, httpsAvailable, isPublic, funnel, mode]
+      properties:
+        available:
+          type: boolean
+        isRunning:
+          type: boolean
+        httpsAvailable:
+          type: boolean
+        isPublic:
+          type: boolean
+        funnel:
+          type: boolean
+        mode:
+          type: string
+          enum: [private, public]
+        hostname:
+          type: string
+        httpsUrl:
+          type: string
+
+    # ── Auth ──
+    AuthConfigResponse:
+      type: object
+      required: [enableSSHKeys, disallowUserPassword, noAuth]
+      properties:
+        enableSSHKeys:
+          type: boolean
+        disallowUserPassword:
+          type: boolean
+        noAuth:
+          type: boolean
+        tailscaleAuth:
+          type: boolean
+          description: Present when authenticated via Tailscale headers
+        authenticatedUser:
+          type: string
+          description: User ID when authenticated via Tailscale
+        tailscaleUser:
+          $ref: "#/components/schemas/TailscaleUser"
+
+    TailscaleUser:
+      type: object
+      required: [login, name]
+      properties:
+        login:
+          type: string
+        name:
+          type: string
+        profilePic:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        token:
+          type: string
+          description: JWT token (24h expiry)
+        userId:
+          type: string
+        authMethod:
+          type: string
+          enum: [password, ssh-key, tailscale, no-auth]
+        error:
+          type: string
+
+    PasswordLoginRequest:
+      type: object
+      required: [userId, password]
+      properties:
+        userId:
+          type: string
+        password:
+          type: string
+
+    VerifyResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        userId:
+          type: string
+        error:
+          type: string
+
+    # ── Sessions ──
+    Session:
+      type: object
+      required:
+        - id
+        - command
+        - workingDir
+        - status
+        - startedAt
+        - lastModified
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        command:
+          type: array
+          items:
+            type: string
+        workingDir:
+          type: string
+        status:
+          type: string
+          enum: [starting, running, exited]
+        exitCode:
+          type: integer
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+        lastModified:
+          type: string
+          format: date-time
+        pid:
+          type: integer
+          nullable: true
+        initialCols:
+          type: integer
+        initialRows:
+          type: integer
+        lastClearOffset:
+          type: integer
+        version:
+          type: string
+        attachedViaVT:
+          type: boolean
+        active:
+          type: boolean
+        activityStatus:
+          type: object
+          properties:
+            isActive:
+              type: boolean
+        source:
+          type: string
+          enum: [local, remote]
+        remoteId:
+          type: string
+        remoteName:
+          type: string
+        remoteUrl:
+          type: string
+        gitRepoPath:
+          type: string
+        gitBranch:
+          type: string
+        gitAheadCount:
+          type: integer
+        gitBehindCount:
+          type: integer
+        gitHasChanges:
+          type: boolean
+        gitIsWorktree:
+          type: boolean
+        gitMainRepoPath:
+          type: string
+        gitModifiedCount:
+          type: integer
+        gitUntrackedCount:
+          type: integer
+        gitStagedCount:
+          type: integer
+        gitAddedCount:
+          type: integer
+        gitDeletedCount:
+          type: integer
+
+    SessionCreateRequest:
+      type: object
+      required: [command]
+      properties:
+        command:
+          type: array
+          items:
+            type: string
+          description: Shell command with arguments
+        workingDir:
+          type: string
+          default: "~"
+        name:
+          type: string
+          description: Optional display name
+        remoteId:
+          type: string
+          description: Remote server ID (HQ mode only)
+        spawn_terminal:
+          type: boolean
+          description: Spawn via Mac app terminal rather than web PTY
+        cols:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        rows:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        titleMode:
+          type: string
+          enum: [command, working-dir, custom]
+
+    SessionCreateResponse:
+      type: object
+      required: [sessionId, createdAt]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        message:
+          type: string
+
+    SessionInputRequest:
+      type: object
+      properties:
+        text:
+          type: string
+        key:
+          type: string
+      description: Exactly one of `text` or `key` must be provided.
+      oneOf:
+        - required: [text]
+        - required: [key]
+
+    SessionResizeRequest:
+      type: object
+      required: [cols, rows]
+      properties:
+        cols:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        rows:
+          type: integer
+          minimum: 1
+          maximum: 1000
+
+    SessionNameUpdate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+
+    CleanupResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        localCleaned:
+          type: integer
+        remoteResults:
+          type: array
+          items:
+            type: object
+            properties:
+              remoteName:
+                type: string
+              cleaned:
+                type: integer
+              error:
+                type: string
+
+    ServerStatus:
+      type: object
+      required: [macAppConnected, isHQMode, version]
+      properties:
+        macAppConnected:
+          type: boolean
+        isHQMode:
+          type: boolean
+        version:
+          type: string
+
+    # ── Filesystem ──
+    FileEntry:
+      type: object
+      required: [name, path, type, size, modified]
+      properties:
+        name:
+          type: string
+          description: File or directory name
+        path:
+          type: string
+          description: Full filesystem path
+        type:
+          type: string
+          enum: [file, directory]
+          description: Entry type — server sends "directory" not "dir"
+        size:
+          type: integer
+          format: int64
+          description: Size in bytes
+        modified:
+          type: string
+          format: date-time
+          description: Last modification time in ISO 8601
+        permissions:
+          type: string
+          description: Unix permission string (e.g., "755")
+        isGitTracked:
+          type: boolean
+          description: Whether the file is tracked by git
+        gitStatus:
+          type: string
+          enum: [modified, added, deleted, untracked, unchanged]
+          description: Git status of the file
+        isSymlink:
+          type: boolean
+          description: Whether the entry is a symbolic link
+
+    GitStatus:
+      type: object
+      required: [isGitRepo]
+      properties:
+        isGitRepo:
+          type: boolean
+        branch:
+          type: string
+        modified:
+          type: array
+          items:
+            type: string
+        added:
+          type: array
+          items:
+            type: string
+        deleted:
+          type: array
+          items:
+            type: string
+        untracked:
+          type: array
+          items:
+            type: string
+
+    DirectoryListing:
+      type: object
+      required: [path, fullPath, files]
+      properties:
+        path:
+          type: string
+          description: The requested path
+        fullPath:
+          type: string
+          description: Resolved absolute path
+        gitStatus:
+          allOf:
+            - $ref: "#/components/schemas/GitStatus"
+          nullable: true
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileEntry"
+
+    FilePreviewResponse:
+      type: object
+      required: [type, size]
+      properties:
+        type:
+          type: string
+          enum: [text, image, binary]
+        content:
+          type: string
+          description: Text content (text type only)
+        language:
+          type: string
+          description: Detected language (text type only)
+        mimeType:
+          type: string
+          description: MIME type
+        url:
+          type: string
+          description: Image URL (image type only)
+        humanSize:
+          type: string
+          description: Human-readable size (binary type only)
+        size:
+          type: integer
+
+    FileContentResponse:
+      type: object
+      required: [path, content, language]
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+        language:
+          type: string
+
+    FileDiffResponse:
+      type: object
+      required: [path, diff, hasDiff]
+      properties:
+        path:
+          type: string
+        diff:
+          type: string
+          description: Git diff output
+        hasDiff:
+          type: boolean
+
+    DiffContentResponse:
+      type: object
+      required: [path, originalContent, modifiedContent, language]
+      properties:
+        path:
+          type: string
+        originalContent:
+          type: string
+          description: File content at HEAD
+        modifiedContent:
+          type: string
+          description: Current file content
+        language:
+          type: string
+
+    MkdirRequest:
+      type: object
+      required: [path, name]
+      properties:
+        path:
+          type: string
+          description: Parent directory path
+        name:
+          type: string
+          description: New directory name (no /, \, or leading .)
+          pattern: '^[^./\\][^/\\]*$'
+
+    Completion:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        type:
+          type: string
+          enum: [file, directory]
+        suggestion:
+          type: string
+        isRepository:
+          type: boolean
+        gitBranch:
+          type: string
+        gitStatusCount:
+          type: integer
+        gitAddedCount:
+          type: integer
+        gitModifiedCount:
+          type: integer
+        gitDeletedCount:
+          type: integer
+        isWorktree:
+          type: boolean
+
+    CompletionsResponse:
+      type: object
+      required: [completions, partialPath]
+      properties:
+        completions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Completion"
+        partialPath:
+          type: string
+
+    # ── Git ──
+    GitRepoInfoResponse:
+      type: object
+      required: [isGitRepo]
+      properties:
+        isGitRepo:
+          type: boolean
+        repoPath:
+          type: string
+          description: Repository root path (when isGitRepo is true)
+
+    GitStatusResponse:
+      type: object
+      required: [isGitRepo]
+      properties:
+        isGitRepo:
+          type: boolean
+        repoPath:
+          type: string
+        currentBranch:
+          type: string
+        hasChanges:
+          type: boolean
+        modifiedCount:
+          type: integer
+        untrackedCount:
+          type: integer
+        stagedCount:
+          type: integer
+        addedCount:
+          type: integer
+        deletedCount:
+          type: integer
+        aheadCount:
+          type: integer
+        behindCount:
+          type: integer
+        hasUpstream:
+          type: boolean
+
+    GitRemoteResponse:
+      type: object
+      required: [isGitRepo]
+      properties:
+        isGitRepo:
+          type: boolean
+        repoPath:
+          type: string
+        remoteUrl:
+          type: string
+          nullable: true
+        githubUrl:
+          type: string
+          nullable: true
+
+    GitRepositoryInfoResponse:
+      type: object
+      allOf:
+        - $ref: "#/components/schemas/GitStatusResponse"
+        - $ref: "#/components/schemas/GitRemoteResponse"
+        - type: object
+          properties:
+            isWorktree:
+              type: boolean
+
+    # ── Config ──
+    QuickStartCommand:
+      type: object
+      properties:
+        name:
+          type: string
+        command:
+          type: string
+
+    ConfigResponse:
+      type: object
+      required: [repositoryBasePath, serverConfigured]
+      properties:
+        repositoryBasePath:
+          type: string
+        serverConfigured:
+          type: boolean
+        quickStartCommands:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuickStartCommand"
+        notificationPreferences:
+          type: object
+
+    ConfigUpdateRequest:
+      type: object
+      properties:
+        quickStartCommands:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuickStartCommand"
+        repositoryBasePath:
+          type: string
+        notificationPreferences:
+          type: object
+
+# ──────────── PATHS ────────────
+
+paths:
+  # ════════════════ HEALTH ════════════════
+  /health:
+    get:
+      tags: [Health]
+      summary: Server health check
+      description: Returns server status, version, and connection info. No auth required.
+      security: []
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  # ════════════════ AUTH ════════════════
+  /auth/config:
+    get:
+      tags: [Auth]
+      summary: Get authentication configuration
+      description: |
+        Returns which auth methods are enabled. When called through Tailscale Serve
+        with valid identity headers, includes `tailscaleAuth: true` and the
+        authenticated user info. Auth middleware is skipped for this endpoint.
+      security: []
+      responses:
+        "200":
+          description: Auth configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthConfigResponse"
+
+  /auth/password:
+    post:
+      tags: [Auth]
+      summary: Authenticate with password
+      description: |
+        Authenticates a user with their system password (PAM on macOS/Linux).
+        Returns a JWT token valid for 24 hours. Auth middleware is skipped.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordLoginRequest"
+      responses:
+        "200":
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  /auth/tailscale-token:
+    post:
+      tags: [Auth]
+      summary: Get JWT for Tailscale-authenticated users
+      description: |
+        Only available to requests already authenticated via Tailscale identity headers.
+        Returns a fresh JWT token for use in WebSocket connections, where Tailscale
+        headers may not be present. Requires request to come through Tailscale Serve
+        proxy (from localhost with proxy headers).
+      security: []
+      responses:
+        "200":
+          description: JWT token generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Not a Tailscale-authenticated request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/verify:
+    get:
+      tags: [Auth]
+      summary: Verify JWT token validity
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Token is valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResponse"
+        "401":
+          description: Token is invalid or expired
+
+  # ════════════════ SESSIONS ════════════════
+  /server/status:
+    get:
+      tags: [Sessions]
+      summary: Get server status
+      description: Returns whether the Mac app is connected and HQ mode status.
+      responses:
+        "200":
+          description: Server status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerStatus"
+
+  /sessions:
+    get:
+      tags: [Sessions]
+      summary: List all sessions
+      description: Returns all local sessions. In HQ mode, includes remote sessions.
+      responses:
+        "200":
+          description: Session list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Session"
+
+    post:
+      tags: [Sessions]
+      summary: Create a new session
+      description: Spawns a new terminal session with the given command.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionCreateRequest"
+      responses:
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionCreateResponse"
+        "400":
+          description: Invalid request (e.g., empty command)
+
+  /sessions/{sessionId}:
+    get:
+      tags: [Sessions]
+      summary: Get session details
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Session info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "404":
+          description: Session not found
+
+    delete:
+      tags: [Sessions]
+      summary: Kill a session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Session killed or detached
+        "404":
+          description: Session not found
+
+    patch:
+      tags: [Sessions]
+      summary: Update session name
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionNameUpdate"
+      responses:
+        "200":
+          description: Name updated
+
+  /sessions/{sessionId}/input:
+    post:
+      tags: [Sessions]
+      summary: Send input to session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionInputRequest"
+      responses:
+        "200":
+          description: Input sent
+        "400":
+          description: Session is not running
+
+  /sessions/{sessionId}/resize:
+    post:
+      tags: [Sessions]
+      summary: Resize session terminal
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionResizeRequest"
+      responses:
+        "200":
+          description: Terminal resized
+
+  /sessions/{sessionId}/cleanup:
+    delete:
+      tags: [Sessions]
+      summary: Cleanup session files
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Session cleaned up
+
+  /sessions/{sessionId}/text:
+    get:
+      tags: [Sessions]
+      summary: Get session terminal text
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: styles
+          in: query
+          schema:
+            type: string
+          description: Include style markup if set
+      responses:
+        "200":
+          description: Terminal text content
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /sessions/{sessionId}/git-status:
+    get:
+      tags: [Sessions]
+      summary: Get git status for session working directory
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Git status details
+
+  /sessions/{sessionId}/reset-size:
+    post:
+      tags: [Sessions]
+      summary: Reset terminal size
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Size reset
+
+  /cleanup-exited:
+    post:
+      tags: [Sessions]
+      summary: Cleanup all exited sessions
+      responses:
+        "200":
+          description: Sessions cleaned up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CleanupResponse"
+
+  # ════════════════ FILESYSTEM ════════════════
+  /fs/browse:
+    get:
+      tags: [Filesystem]
+      summary: Browse a directory
+      description: |
+        Lists files and subdirectories in the given path.
+        Includes optional git status information for the directory.
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Directory path to browse (e.g., "/" or "~")
+        - name: showHidden
+          in: query
+          schema:
+            type: string
+            enum: ["true"]
+          description: Include hidden files when set to "true"
+        - name: gitFilter
+          in: query
+          schema:
+            type: string
+            enum: [all, changed, none]
+            default: all
+          description: Filter files by git status
+      responses:
+        "200":
+          description: Directory contents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectoryListing"
+        "404":
+          description: Directory not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /fs/preview:
+    get:
+      tags: [Filesystem]
+      summary: Preview a file
+      description: |
+        Returns a preview of the file: text content with language detection,
+        image metadata, or binary file info.
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FilePreviewResponse"
+
+  /fs/content:
+    get:
+      tags: [Filesystem]
+      summary: Get text file content
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File content with language
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileContentResponse"
+
+  /fs/diff:
+    get:
+      tags: [Filesystem]
+      summary: Get git diff for a file
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git diff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileDiffResponse"
+
+  /fs/diff-content:
+    get:
+      tags: [Filesystem]
+      summary: Get current and HEAD versions of a file
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Original and modified content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiffContentResponse"
+
+  /fs/mkdir:
+    post:
+      tags: [Filesystem]
+      summary: Create a directory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MkdirRequest"
+      responses:
+        "200":
+          description: Directory created
+
+  /fs/completions:
+    get:
+      tags: [Filesystem]
+      summary: Path autocomplete suggestions
+      parameters:
+        - name: path
+          in: query
+          schema:
+            type: string
+            default: ""
+      responses:
+        "200":
+          description: Completion suggestions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompletionsResponse"
+
+  # ════════════════ GIT ════════════════
+  /git/repo-info:
+    get:
+      tags: [Git]
+      summary: Check if path is in a git repository
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git repo check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitRepoInfoResponse"
+
+  /git/status:
+    get:
+      tags: [Git]
+      summary: Get detailed git status for a path
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git status details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitStatusResponse"
+
+  /git/remote:
+    get:
+      tags: [Git]
+      summary: Get remote URL for a repository
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Remote info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitRemoteResponse"
+
+  /git/repository-info:
+    get:
+      tags: [Git]
+      summary: Get comprehensive repository information
+      description: Combines git status, remote info, and worktree detection
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Comprehensive repo info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitRepositoryInfoResponse"
+
+  # ════════════════ CONFIG ════════════════
+  /config:
+    get:
+      tags: [Config]
+      summary: Get application configuration
+      responses:
+        "200":
+          description: Application config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigResponse"
+
+    put:
+      tags: [Config]
+      summary: Update application configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigUpdateRequest"
+      responses:
+        "200":
+          description: Config updated
+        "400":
+          description: No valid updates provided

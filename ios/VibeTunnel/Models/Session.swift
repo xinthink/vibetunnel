@@ -19,7 +19,6 @@ struct Session: Codable, Identifiable, Equatable, Hashable {
     // Terminal dimensions
     let width: Int?
     let height: Int?
-    let waiting: Bool?
 
     // Optional fields from HQ mode
     let source: String?
@@ -39,7 +38,6 @@ struct Session: Codable, Identifiable, Equatable, Hashable {
         case pid
         case width
         case height
-        case waiting
         case source
         case remoteId
         case remoteName

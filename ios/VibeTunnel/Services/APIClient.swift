@@ -121,7 +121,7 @@ class APIClient: APIClientProtocol {
 
     /// Updates the base URL for API requests (used for Tailscale connections)
     func updateBaseURL(_ url: URL) {
-        overrideBaseURL = url
+        self.overrideBaseURL = url
     }
 
     // MARK: - Session Management
@@ -594,35 +594,6 @@ class APIClient: APIClientProtocol {
         try self.validateResponse(response)
 
         return data
-    }
-
-    func getFileInfo(path: String) async throws -> FileInfo {
-        guard let baseURL else {
-            throw APIError.noServerConfigured
-        }
-
-        guard var components = URLComponents(
-            url: baseURL.appendingPathComponent("api/fs/info"),
-            resolvingAgainstBaseURL: false)
-        else {
-            throw APIError.invalidURL
-        }
-        components.queryItems = [URLQueryItem(name: "path", value: path)]
-
-        guard let url = components.url else {
-            throw APIError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-
-        // Add authentication header if needed
-        self.addAuthenticationIfNeeded(&request)
-
-        let (data, response) = try await session.data(for: request)
-        try self.validateResponse(response)
-
-        return try self.decoder.decode(FileInfo.self, from: data)
     }
 
     func previewFile(path: String) async throws -> FilePreview {

@@ -15,6 +15,7 @@ import { ServerEventType } from '../shared/types.js';
 import { apiSocketServer } from './api-socket-server.js';
 import type { AuthenticatedRequest } from './middleware/auth.js';
 import { createAuthMiddleware } from './middleware/auth.js';
+import { createValidateMiddleware } from './middleware/validate.js';
 import { PtyManager } from './pty/index.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createConfigRoutes } from './routes/config.js';
@@ -1059,8 +1060,10 @@ export async function createApp(): Promise<AppInstance> {
   }
 
   // Apply auth middleware to all API routes (including auth routes for Tailscale header detection)
+  const validateMiddleware = createValidateMiddleware();
   app.use('/api', authMiddleware);
-  logger.debug('Applied authentication middleware to /api routes');
+  app.use('/api', validateMiddleware);
+  logger.debug('Applied auth + validation middleware to /api routes');
 
   // Mount authentication routes (auth middleware will skip these but still check Tailscale headers)
   app.use(
