@@ -2,6 +2,8 @@ import SwiftUI
 
 /// Popover for selecting terminal width presets
 struct WidthSelectorPopover: View {
+    @Environment(TerminalPreferencesStore.self)
+    private var preferences
     @Binding var currentWidth: TerminalWidth
     @Binding var isPresented: Bool
     @State private var customWidth: String = ""
@@ -41,7 +43,7 @@ struct WidthSelectorPopover: View {
                 }
 
                 // Show recent custom widths if any
-                let customWidths = TerminalWidthManager.shared.customWidths
+                let customWidths = self.preferences.customWidths
                 if !customWidths.isEmpty {
                     Section(
                         header: Text("Recent Custom Widths")
@@ -80,7 +82,7 @@ struct WidthSelectorPopover: View {
             { width in
                 if let intWidth = Int(width), intWidth >= 20, intWidth <= 500 {
                     self.currentWidth = .custom(intWidth)
-                    TerminalWidthManager.shared.addCustomWidth(intWidth)
+                    self.preferences.addCustomWidth(intWidth)
                     HapticFeedback.notification(.success)
                     self.showCustomInput = false
                     self.isPresented = false

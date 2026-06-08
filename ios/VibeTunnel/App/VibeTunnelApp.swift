@@ -8,6 +8,7 @@ struct VibeTunnelApp: App {
     @State private var connectionManager = ConnectionManager.shared
     @State private var navigationManager = NavigationManager()
     @State private var networkMonitor = NetworkMonitor.shared
+    @State private var terminalPreferences = TerminalPreferencesStore.shared
 
     @AppStorage("colorSchemePreference")
     private var colorSchemePreferenceRaw = "system"
@@ -22,6 +23,7 @@ struct VibeTunnelApp: App {
             ContentView()
                 .environment(self.connectionManager)
                 .environment(self.navigationManager)
+                .environment(self.terminalPreferences)
                 .offlineBanner()
                 .onOpenURL { url in
                     self.handleURL(url)

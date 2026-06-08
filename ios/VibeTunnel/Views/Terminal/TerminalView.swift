@@ -11,8 +11,9 @@ struct TerminalView: View {
     let session: Session
     @Environment(\.dismiss)
     var dismiss
+    @Environment(TerminalPreferencesStore.self)
+    private var preferences
     @State private var viewModel: TerminalViewModel
-    @State private var fontSize: CGFloat = 14
     @State private var showingFontSizeSheet = false
     @State private var showingRecordingSheet = false
     @State private var showingTerminalWidthSheet = false
@@ -30,12 +31,28 @@ struct TerminalView: View {
     @State private var showingCtrlKeyGrid = false
     @FocusState private var isInputFocused: Bool
 
+    private var fontSizeBinding: Binding<CGFloat> {
+        Binding(get: { self.preferences.fontSize }, set: { self.preferences.fontSize = $0 })
+    }
+
+    private var terminalWidthBinding: Binding<TerminalWidth> {
+        Binding(get: { self.preferences.terminalWidth }, set: { self.preferences.terminalWidth = $0 })
+    }
+
     init(session: Session) {
         self.session = session
         self._viewModel = State(initialValue: TerminalViewModel(session: session))
     }
 
     var body: some View {
+        @Bindable var prefs = self.preferences
+        let selectedWidthBinding = Binding<Int?>(
+            get: { prefs.terminalWidth.value == 0 ? nil : prefs.terminalWidth.value },
+            set: { newValue in
+                if let width = newValue {
+                    prefs.terminalWidth = TerminalWidth.from(value: width)
+                }
+            })
         NavigationStack {
             self.mainContent
                 .navigationTitle(self.session.displayName)
@@ -57,14 +74,14 @@ struct TerminalView: View {
             self.viewModel.disconnect()
         }
         .sheet(isPresented: self.$showingFontSizeSheet) {
-            FontSizeSheet(fontSize: self.$fontSize)
+            FontSizeSheet(fontSize: $prefs.fontSize)
         }
         .sheet(isPresented: self.$showingRecordingSheet) {
             RecordingExportSheet(recorder: self.viewModel.castRecorder, sessionName: self.session.displayName)
         }
         .sheet(isPresented: self.$showingTerminalWidthSheet) {
             TerminalWidthSheet(
-                selectedWidth: self.$selectedTerminalWidth,
+                selectedWidth: selectedWidthBinding,
                 isResizeBlockedByServer: self.viewModel.isResizeBlockedByServer)
                 .onAppear {
                     self.selectedTerminalWidth = self.viewModel.terminalCols
@@ -122,19 +139,14 @@ struct TerminalView: View {
                 }
             }
         }
-        .onChange(of: self.selectedTerminalWidth) { _, newValue in
-            if let width = newValue, width != viewModel.terminalCols {
+        .onChange(of: prefs.terminalWidth) { _, newWidth in
+            let targetWidth = newWidth.value == 0 ? nil : newWidth.value
+            self.selectedTerminalWidth = targetWidth
+            self.viewModel.setMaxWidth(targetWidth ?? 0)
+            if let width = targetWidth, width != viewModel.terminalCols {
                 let aspectRatio = Double(viewModel.terminalRows) / Double(self.viewModel.terminalCols)
                 let newHeight = Int(Double(width) * aspectRatio)
                 self.viewModel.resize(cols: width, rows: newHeight)
-            }
-        }
-        .onChange(of: self.currentTerminalWidth) { _, newWidth in
-            let targetWidth = newWidth.value == 0 ? nil : newWidth.value
-            if targetWidth != self.selectedTerminalWidth {
-                self.selectedTerminalWidth = targetWidth
-                self.viewModel.setMaxWidth(targetWidth ?? 0)
-                TerminalWidthManager.shared.defaultWidth = newWidth.value
             }
         }
         .onChange(of: self.viewModel.isAtBottom) { _, newValue in
@@ -154,7 +166,7 @@ struct TerminalView: View {
             if press.modifiers.contains(.command) {
                 // Increase font size
                 withAnimation(Theme.Animation.quick) {
-                    self.fontSize = min(self.fontSize + 2, 30)
+                    self.preferences.fontSize = min(self.preferences.fontSize + 2, 30)
                 }
                 return .handled
             }
@@ -164,7 +176,7 @@ struct TerminalView: View {
             if press.modifiers.contains(.command) {
                 // Decrease font size
                 withAnimation(Theme.Animation.quick) {
-                    self.fontSize = max(self.fontSize - 2, 8)
+                    self.preferences.fontSize = max(self.preferences.fontSize - 2, 8)
                 }
                 return .handled
             }
@@ -290,7 +302,7 @@ struct TerminalView: View {
             }
 
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                QuickFontSizeButtons(fontSize: self.$fontSize)
+                QuickFontSizeButtons(fontSize: self.fontSizeBinding)
                     .fixedSize()
                 self.fileBrowserButton
                 self.widthSelectorButton
@@ -332,7 +344,7 @@ struct TerminalView: View {
             HStack(spacing: 2) {
                 Image(systemName: "arrow.left.and.right")
                     .font(.system(size: 12))
-                Text(self.currentTerminalWidth.label)
+                Text(self.preferences.terminalWidth.label)
                     .font(Theme.Typography.terminalSystem(size: 14))
                     .fontWeight(.medium)
             }
@@ -347,7 +359,7 @@ struct TerminalView: View {
         .foregroundColor(Theme.Colors.primaryAccent)
         .popover(isPresented: self.$showingWidthSelector, arrowEdge: .top) {
             WidthSelectorPopover(
-                currentWidth: self.$currentTerminalWidth,
+                currentWidth: self.terminalWidthBinding,
                 isPresented: self.$showingWidthSelector)
         }
     }
@@ -378,28 +390,28 @@ struct TerminalView: View {
 
         Menu {
             Button(action: {
-                self.fontSize = max(8, self.fontSize - 1)
+                self.preferences.fontSize = max(8, self.preferences.fontSize - 1)
                 HapticFeedback.impact(.light)
             }, label: {
                 Label("Decrease", systemImage: "minus")
             })
-            .disabled(self.fontSize <= 8)
+            .disabled(self.preferences.fontSize <= 8)
 
             Button(action: {
-                self.fontSize = min(32, self.fontSize + 1)
+                self.preferences.fontSize = min(32, self.preferences.fontSize + 1)
                 HapticFeedback.impact(.light)
             }, label: {
                 Label("Increase", systemImage: "plus")
             })
-            .disabled(self.fontSize >= 32)
+            .disabled(self.preferences.fontSize >= 32)
 
             Button(action: {
-                self.fontSize = 14
+                self.preferences.fontSize = 14
                 HapticFeedback.impact(.light)
             }, label: {
                 Label("Reset to Default", systemImage: "arrow.counterclockwise")
             })
-            .disabled(self.fontSize == 14)
+            .disabled(self.preferences.fontSize == 14)
 
             Divider()
 
@@ -407,7 +419,7 @@ struct TerminalView: View {
                 Label("More Options...", systemImage: "slider.horizontal.3")
             })
         } label: {
-            Label("Font Size (\(Int(self.fontSize))pt)", systemImage: "textformat.size")
+            Label("Font Size (\(Int(self.preferences.fontSize))pt)", systemImage: "textformat.size")
         }
 
         Button(action: { self.showingTerminalWidthSheet = true }, label: {
@@ -535,7 +547,7 @@ struct TerminalView: View {
 
         return VStack(spacing: 0) {
             GhosttyWebView(
-                fontSize: self.$fontSize,
+                fontSize: self.fontSizeBinding,
                 theme: self.selectedTheme,
                 onInput: { text in
                     self.viewModel.sendInput(text)
