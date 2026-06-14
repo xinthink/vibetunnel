@@ -38,6 +38,8 @@ struct SessionCreateView: View {
     @State private var showFileBrowser = false
 
     @FocusState private var focusedField: Field?
+    @Environment(TerminalPreferencesStore.self)
+    private var preferences
     @Environment(\.horizontalSizeClass)
     private var horizontalSizeClass
 
@@ -379,10 +381,12 @@ struct SessionCreateView: View {
 
         Task {
             do {
+                let defaultWidth = self.preferences.terminalWidth.value
                 let sessionData = SessionCreateData(
                     command: command,
                     workingDir: workingDirectory.isEmpty ? "~" : self.workingDirectory,
-                    name: self.sessionName.isEmpty ? nil : self.sessionName)
+                    name: self.sessionName.isEmpty ? nil : self.sessionName,
+                    cols: defaultWidth > 0 ? defaultWidth : 120)
 
                 // Log the request for debugging
                 logger.info("Creating session with data:")

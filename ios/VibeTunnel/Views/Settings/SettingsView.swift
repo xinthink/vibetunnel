@@ -26,7 +26,9 @@ struct SettingsView: View {
         case advanced = "Advanced"
         case about = "About"
 
-        var id: String { self.rawValue }
+        var id: String {
+            self.rawValue
+        }
 
         var icon: String {
             switch self {
@@ -61,7 +63,8 @@ struct SettingsView: View {
                                 self.selectedTab.wrappedValue == tab ? Theme.Colors.primaryAccent : Theme.Colors
                                     .terminalForeground.opacity(0.5))
                             .background(
-                                self.selectedTab.wrappedValue == tab ? Theme.Colors.primaryAccent.opacity(0.1) : Color.clear)
+                                self.selectedTab.wrappedValue == tab ? Theme.Colors.primaryAccent.opacity(0.1) : Color
+                                    .clear)
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
@@ -115,17 +118,17 @@ struct SettingsView: View {
 
 #if DEBUG
 extension SettingsView {
-    var test_selectedTab: Binding<SettingsTab> { self.selectedTab }
+    var test_selectedTab: Binding<SettingsTab> {
+        self.selectedTab
+    }
 }
 #endif
 
 /// General settings tab content.
 /// Provides options for basic app configuration and preferences.
 struct GeneralSettingsView: View {
-    @AppStorage("defaultFontSize")
-    private var defaultFontSize: Double = 14
-    @AppStorage("defaultTerminalWidth")
-    private var defaultTerminalWidth: Int = 80
+    @Environment(TerminalPreferencesStore.self)
+    private var preferences
     @AppStorage("autoScrollEnabled")
     private var autoScrollEnabled = true
     @AppStorage("enableURLDetection")
@@ -154,6 +157,13 @@ struct GeneralSettingsView: View {
     }
 
     var body: some View {
+        @Bindable var prefs = self.preferences
+        let fontSizeDouble = Binding<Double>(
+            get: { Double(prefs.fontSize) },
+            set: { prefs.fontSize = CGFloat($0) })
+        let terminalWidthInt = Binding<Int>(
+            get: { prefs.terminalWidth.value },
+            set: { prefs.terminalWidth = TerminalWidth.from(value: $0) })
         VStack(alignment: .leading, spacing: Theme.Spacing.large) {
             // Appearance Section
             VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
@@ -190,11 +200,11 @@ struct GeneralSettingsView: View {
                 VStack(spacing: Theme.Spacing.medium) {
                     // Font Size
                     VStack(alignment: .leading, spacing: Theme.Spacing.small) {
-                        Text("Default Font Size: \(Int(self.defaultFontSize))pt")
+                        Text("Default Font Size: \(Int(prefs.fontSize))pt")
                             .font(Theme.Typography.terminalSystem(size: 14))
                             .foregroundColor(Theme.Colors.terminalForeground.opacity(0.7))
 
-                        Slider(value: self.$defaultFontSize, in: 10...24, step: 1)
+                        Slider(value: fontSizeDouble, in: 10...24, step: 1)
                             .accentColor(Theme.Colors.primaryAccent)
                     }
                     .padding()
@@ -203,11 +213,11 @@ struct GeneralSettingsView: View {
 
                     // Terminal Width
                     VStack(alignment: .leading, spacing: Theme.Spacing.small) {
-                        Text("Default Terminal Width: \(self.defaultTerminalWidth) columns")
+                        Text("Default Terminal Width: \(prefs.terminalWidth.value) columns")
                             .font(Theme.Typography.terminalSystem(size: 14))
                             .foregroundColor(Theme.Colors.terminalForeground.opacity(0.7))
 
-                        Picker("Width", selection: self.$defaultTerminalWidth) {
+                        Picker("Width", selection: terminalWidthInt) {
                             Text("80 columns").tag(80)
                             Text("100 columns").tag(100)
                             Text("120 columns").tag(120)
